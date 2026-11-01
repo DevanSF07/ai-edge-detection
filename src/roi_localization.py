@@ -1,107 +1,155 @@
+"""
+ROI Localization and Solder Anomaly Detection via OpenCV Morphological Transforms.
+Directly implements CV bullet point 3:
+"Localised critical circuit traces and solder anomalies by integrating OpenCV
+morphological transforms across targeted Regions of Interest."
+"""
+
+from typing import List, Tuple, Dict, Any, Optional
 import cv2
 import numpy as np
-import torch
 
 
-def construct_line_roi(pt1: tuple, pt2: tuple, padding: int = 12) -> tuple:
+def extract_targeted_rois(
+    image: np.ndarray,
+    patch_size: int = 64,
+    stride: int = 64
+) -> List[Tuple[int, int, int, int]]:
     """
-    Construct a bounding rectangle (ROI) around expected micro-trace line endpoints (x1, y1) and (x2, y2).
+    Extracts targeted Regions of Interest (ROIs) across the PCB surface
+    using a sliding window inspection grid.
     Returns:
-        (x, y, w, h)
+        List of bounding boxes: [(x, y, w, h), ...]
     """
-    x1, y1 = pt1
-    x2, y2 = pt2
-    xmin = max(0, min(x1, x2) - padding)
-    ymin = max(0, min(y1, y2) - padding)
-    xmax = max(x1, x2) + padding
-    ymax = max(y1, y2) + padding
-    return (xmin, ymin, xmax - xmin, ymax - ymin)
+    if image.ndim == 3:
+        H, W = image.shape[:2]
+    else:
+        H, W = image.shape
+
+    rois = []
+    for y in range(0, H - patch_size + 1, stride):
+        for x in range(0, W - patch_size + 1, stride):
+            rois.append((x, y, patch_size, patch_size))
+
+    return rois
 
 
-def extract_roi_patches(image: np.ndarray, roi_list: list, patch_size: tuple = (64, 64)) -> list:
+def localize_critical_traces(
+    image: np.ndarray,
+    rois: List[Tuple[int, int, int, int]],
+    threshold_val: Optional[int] = None,
+    min_density: float = 0.05
+) -> List[Dict[str, Any]]:
     """
-    Extract square patches from specified ROIs with resizing or center-cropping
-    for input into the patch verification classifier.
+    Localises critical micro-circuit traces inside targeted ROIs using
+    OpenCV Top-Hat transform with directional structuring elements (vertical and horizontal).
     """
     if image.ndim == 3:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     else:
         gray = image.copy()
 
-    patches = []
-    H, W = gray.shape
+    # Directional kernels for linear micro-traces
+    k_vert = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 9))
+    k_horiz = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 1))
 
-    for (x, y, w, h) in roi_list:
-        x_end = min(W, x + w)
-        y_end = min(H, y + h)
-        x_start = max(0, x)
-        y_start = max(0, y)
+    # Top-hat isolates bright copper traces from substrate
+    tophat_v = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, k_vert)
+    tophat_h = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, k_horiz)
+    traces_map = cv2.add(tophat_v, tophat_h)
 
-        crop = gray[y_start:y_end, x_start:x_end]
-        if crop.size == 0:
-            continue
-        patch = cv2.resize(crop, patch_size)
-        patches.append(patch)
-
-    return patches
-
-
-def filter_candidate_rois(
-    image: np.ndarray,
-    roi_list: list,
-    classifier: torch.nn.Module,
-    patch_size: tuple = (64, 64),
-    device: str = "cpu"
-) -> list:
-    """
-    Evaluates candidate ROI patches using the CNN Line Presence Classifier.
-    Returns:
-        List of tuples: [(roi, is_line_present, confidence), ...]
-    """
-    patches = extract_roi_patches(image, roi_list, patch_size)
-    if not patches:
-        return []
-
-    classifier.eval()
-    classifier.to(device)
+    # Adaptive threshold if not explicitly specified
+    if threshold_val is None:
+        threshold_val = max(6, int(np.mean(traces_map) + 0.8 * np.std(traces_map)))
 
     results = []
-    for roi, patch in zip(roi_list, patches):
-        patch_tensor = torch.from_numpy(patch).float().unsqueeze(0).unsqueeze(0) / 255.0
-        patch_tensor = patch_tensor.to(device)
+    for (x, y, w, h) in rois:
+        patch = traces_map[y:y+h, x:x+w]
+        if patch.size == 0:
+            continue
 
-        with torch.no_grad():
-            logits = classifier(patch_tensor)
-            probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
-            pred_class = int(np.argmax(probs))
-            conf = float(probs[pred_class])
+        # Measure trace presence density inside the ROI
+        trace_density = float(np.count_nonzero(patch > threshold_val) / patch.size)
+        is_trace = trace_density > min_density
 
         results.append({
-            "roi": roi,
-            "has_line": bool(pred_class == 1),
-            "confidence": conf
+            "roi": (x, y, w, h),
+            "is_critical_trace": is_trace,
+            "trace_density": round(trace_density, 4),
         })
 
     return results
 
 
-def draw_roi_overlays(image: np.ndarray, roi_results: list) -> np.ndarray:
-    """Draw bounding boxes and status labels on the image for inspection visualization."""
+def localize_solder_anomalies(
+    image: np.ndarray,
+    rois: List[Tuple[int, int, int, int]],
+    threshold_val: Optional[int] = None,
+    min_density: float = 0.03
+) -> List[Dict[str, Any]]:
+    """
+    Localises solder anomalies (bridges, voids, discontinuities, and pinholes)
+    inside targeted ROIs using OpenCV Black-Hat transform and Morphological Closing.
+    """
+    if image.ndim == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = image.copy()
+
+    # Black-hat transform highlights dark anomalies, voids, and gaps in solder joints
+    kernel_circ = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    blackhat = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel_circ)
+
+    # Adaptive threshold if not explicitly specified
+    if threshold_val is None:
+        threshold_val = max(5, int(np.mean(blackhat) + 1.2 * np.std(blackhat)))
+
+    anomalies = []
+    for (x, y, w, h) in rois:
+        patch_bh = blackhat[y:y+h, x:x+w]
+        if patch_bh.size == 0:
+            continue
+
+        void_ratio = float(np.count_nonzero(patch_bh > threshold_val) / patch_bh.size)
+        is_anomaly = void_ratio > min_density
+
+        anomalies.append({
+            "roi": (x, y, w, h),
+            "has_anomaly": is_anomaly,
+            "void_ratio": round(void_ratio, 4),
+            "defect_type": "solder_void/bridge" if is_anomaly else "normal"
+        })
+
+    return anomalies
+
+
+def draw_roi_inspection(
+    image: np.ndarray,
+    trace_results: List[Dict[str, Any]],
+    anomaly_results: List[Dict[str, Any]]
+) -> np.ndarray:
+    """
+    Renders an inspection overlay:
+      - Green boxes: Localised critical circuit traces
+      - Red boxes: Localised solder anomalies (voids, bridges, irregularities)
+    """
     if image.ndim == 2:
         vis = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
     else:
         vis = image.copy()
 
-    for item in roi_results:
-        x, y, w, h = item["roi"]
-        has_line = item["has_line"]
-        conf = item["confidence"]
+    # Draw circuit traces in green
+    for item in trace_results:
+        if item["is_critical_trace"]:
+            x, y, w, h = item["roi"]
+            cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 255, 0), 1)
 
-        color = (0, 255, 0) if has_line else (0, 0, 255)
-        label = f"Trace: {conf:.2f}" if has_line else "No Trace"
-
-        cv2.rectangle(vis, (x, y), (x + w, y + h), color, 2)
-        cv2.putText(vis, label, (x, max(15, y - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
+    # Draw solder anomalies in red (thicker border with label)
+    for item in anomaly_results:
+        if item["has_anomaly"]:
+            x, y, w, h = item["roi"]
+            cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 0, 255), 2)
+            cv2.putText(vis, "ANOMALY", (x, y + h - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 255), 1)
 
     return vis
-

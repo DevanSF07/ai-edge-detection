@@ -10,37 +10,45 @@ from models.dexined import DexiNed
 from src.enhancement import sharpen_image, morphological_trace_enhancement, detect_solder_anomalies
 from src.edge_detectors import run_dexined, canny_edges, hough_line_detection
 from src.metrics import calculate_psnr, calculate_ssim, calculate_mse, calculate_laplacian_variance, calculate_ods_f1
+from src.roi_localization import (
+    extract_targeted_rois,
+    localize_critical_traces,
+    localize_solder_anomalies,
+    draw_roi_inspection
+)
 
 
 class PCBInspectionPipeline:
     """
     End-to-End AI-Assisted PCB Inspection and Micro-Trace Edge Detection Pipeline.
-    Directly implements the full workflow described in the placement CV:
-        1. Denoising & Image Restoration (DnCNN / LineAutoencoder)
-        2. Edge Clarification (Laplacian-calibrated unsharp masking)
-        3. Morphological Processing & Solder Anomaly Localization
-        4. Sub-Pixel Micro-Trace Edge Detection (DexiNed)
-        5. Comprehensive Quality Benchmarking (PSNR, SSIM, Laplacian Sharpness, ODS F1)
+    Strictly implements the three pillars of the CV:
+        1. Denoising & Image Restoration (DnCNN / LineAutoencoder + Unsharp Sharpening)
+        2. Sub-Pixel Micro-Trace Edge Detection (DexiNed)
+        3. OpenCV Morphological Transforms across targeted ROIs for trace and solder anomaly localization
     """
     def __init__(
         self,
-        denoiser: Optional[torch.nn.Module] = None,
-        edge_detector: Optional[torch.nn.Module] = None,
+        denoiser_model: str = "autoencoder",  # 'autoencoder' or 'dncnn'
         device: str = "cpu"
     ):
         self.device = device
-        self.denoiser = denoiser if denoiser is not None else LineAutoencoder(1, 1)
+        self.denoiser_type = denoiser_model.lower()
+
+        if self.denoiser_type == "dncnn":
+            self.denoiser = DnCNN(in_channels=1, out_channels=1)
+        else:
+            self.denoiser = LineAutoencoder(in_channels=1, out_channels=1)
+
         self.denoiser.to(self.device)
         self.denoiser.eval()
 
-        self.edge_detector = edge_detector if edge_detector is not None else DexiNed(1)
+        self.edge_detector = DexiNed(in_channels=1)
         self.edge_detector.to(self.device)
         self.edge_detector.eval()
 
     def restore_image(self, image: np.ndarray, apply_sharpening: bool = True) -> np.ndarray:
         """
-        Denoise and clarify degraded PCB imagery.
-        Applies Autoencoder/DnCNN forward pass and unsharp masking.
+        Denoise and clarify degraded PCB imagery using DnCNN / Autoencoder.
         """
         if image.ndim == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -76,42 +84,44 @@ class PCBInspectionPipeline:
         """Extract continuous sub-pixel trace edges using DexiNed."""
         return run_dexined(image, model=self.edge_detector, device=self.device)
 
-    def analyze_traces_and_anomalies(self, image: np.ndarray) -> Dict[str, Any]:
+    def analyze_targeted_rois(self, image: np.ndarray) -> Dict[str, Any]:
         """
-        Localise critical circuit traces and solder anomalies
-        via morphological transforms and Hough transforms.
+        Morphological transforms across targeted Regions of Interest (ROIs):
+        Localises critical circuit traces and solder anomalies.
         """
-        tophat = morphological_trace_enhancement(image, kernel_size=(3, 3), op="tophat")
-        gradient = morphological_trace_enhancement(image, kernel_size=(3, 3), op="gradient")
-        solder_vis, solder_circles = detect_solder_anomalies(image)
-        canny = canny_edges(image)
-        lines, line_count = hough_line_detection(canny)
+        rois = extract_targeted_rois(image)
+        traces = localize_critical_traces(image, rois)
+        anomalies = localize_solder_anomalies(image, rois)
+        annotated_vis = draw_roi_inspection(image, traces, anomalies)
+
+        critical_traces_count = sum(1 for t in traces if t["is_critical_trace"])
+        anomalies_count = sum(1 for a in anomalies if a["has_anomaly"])
 
         return {
-            "tophat_traces": tophat,
-            "morph_gradient": gradient,
-            "solder_annotated": solder_vis,
-            "solder_count": len(solder_circles),
-            "detected_lines_count": line_count,
+            "rois": rois,
+            "trace_results": traces,
+            "anomaly_results": anomalies,
+            "annotated_vis": annotated_vis,
+            "critical_traces_count": critical_traces_count,
+            "anomalies_count": anomalies_count,
         }
 
     def inspect(self, degraded_img: np.ndarray, reference_img: Optional[np.ndarray] = None) -> Dict[str, Any]:
         """
         Run complete inspection pipeline on an image.
-        Returns restored image, edge map, morphological analysis, and quantitative metrics.
+        Returns restored image, DexiNed edge map, morphological ROI analysis, and metrics.
         """
         restored = self.restore_image(degraded_img, apply_sharpening=True)
         dexined_edges = self.extract_edges(restored)
-        anomaly_results = self.analyze_traces_and_anomalies(restored)
+        roi_analysis = self.analyze_targeted_rois(restored)
 
-        # Metrics computation
         degraded_sharpness = calculate_laplacian_variance(degraded_img)
         restored_sharpness = calculate_laplacian_variance(restored)
 
         results = {
             "restored_image": restored,
             "dexined_edges": dexined_edges,
-            "anomalies": anomaly_results,
+            "roi_analysis": roi_analysis,
             "degraded_sharpness": degraded_sharpness,
             "restored_sharpness": restored_sharpness,
         }
@@ -129,4 +139,3 @@ class PCBInspectionPipeline:
             results["dexined_ods_f1"] = calculate_ods_f1(dexined_edges, gt_edges)
 
         return results
-

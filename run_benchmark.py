@@ -29,6 +29,11 @@ from src.metrics import (
 )
 from src.enhancement import sharpen_image
 from src.edge_detectors import canny_edges, run_dexined
+from src.roi_localization import (
+    extract_targeted_rois,
+    localize_critical_traces,
+    localize_solder_anomalies,
+)
 from models.dexined import DexiNed
 
 
@@ -85,6 +90,13 @@ def evaluate_production_scans(
         canny_map = canny_edges(bad_img)
         dexined_map = run_dexined(corrected_img, model=dexined_model)
 
+        # OpenCV Morphological transforms across targeted ROIs (CV Bullet 3)
+        rois = extract_targeted_rois(corrected_img)
+        traces = localize_critical_traces(corrected_img, rois)
+        anomalies = localize_solder_anomalies(corrected_img, rois)
+        critical_count = sum(1 for t in traces if t["is_critical_trace"])
+        anomaly_count = sum(1 for a in anomalies if a["has_anomaly"])
+
         record = {
             "Evaluation_Set": "Production_Scans",
             "Image_ID": f,
@@ -93,6 +105,9 @@ def evaluate_production_scans(
             "Restoration_MSE": round(mse, 2),
             "Restoration_PSNR_dB": round(psnr, 2),
             "Restoration_SSIM": round(ssim_val, 4),
+            "Targeted_ROIs": len(rois),
+            "Critical_Traces_Localized": critical_count,
+            "Solder_Anomalies_Detected": anomaly_count,
         }
         records.append(record)
 
@@ -231,6 +246,9 @@ def run_benchmarks(
     print(f"  Mean Restoration PSNR         : {df_prod['Restoration_PSNR_dB'].mean():.2f} dB")
     print(f"  Mean Restoration SSIM         : {df_prod['Restoration_SSIM'].mean():.4f}")
     print(f"  Mean Restoration MSE          : {df_prod['Restoration_MSE'].mean():.2f}")
+    print(f"  Total Targeted ROIs Inspected : {df_prod['Targeted_ROIs'].sum()}")
+    print(f"  Critical Traces Localized     : {df_prod['Critical_Traces_Localized'].sum()}")
+    print(f"  Solder Anomalies Detected     : {df_prod['Solder_Anomalies_Detected'].sum()}")
 
     if not df_cv.empty:
         print("\n" + "=" * 80)

@@ -1,5 +1,9 @@
 """
 Core library for AI-assisted Edge Detection and Circuit Board Image Clarification.
+Strictly implements the methods described in the CV:
+- Restoration (DnCNN, Autoencoders, Unsharp Masking, SSIM/Hybrid Losses)
+- Edge Detection (DexiNed Sub-Pixel Multi-Scale Edge Detection)
+- Morphological Localization (OpenCV Morphological Transforms across targeted ROIs for traces & solder anomalies)
 """
 
 from .metrics import (
@@ -24,9 +28,10 @@ from .edge_detectors import (
     run_dexined,
 )
 from .roi_localization import (
-    extract_roi_patches,
-    construct_line_roi,
-    filter_candidate_rois,
+    extract_targeted_rois,
+    localize_critical_traces,
+    localize_solder_anomalies,
+    draw_roi_inspection,
 )
 from .pipeline import PCBInspectionPipeline
 
@@ -47,9 +52,9 @@ __all__ = [
     "scharr_edges",
     "hough_line_detection",
     "run_dexined",
-    "extract_roi_patches",
-    "construct_line_roi",
-    "filter_candidate_rois",
+    "extract_targeted_rois",
+    "localize_critical_traces",
+    "localize_solder_anomalies",
+    "draw_roi_inspection",
     "PCBInspectionPipeline",
 ]
-

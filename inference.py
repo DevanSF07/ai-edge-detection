@@ -1,7 +1,12 @@
 """
 CLI Tool for Single-Image / Batch PCB Inspection & Trace Edge Detection.
+Directly exercises the models and algorithms in the CV:
+  1. DnCNN / Autoencoder Image Restoration
+  2. DexiNed Sub-Pixel Edge Detection
+  3. OpenCV Morphological Transforms across targeted ROIs for trace & solder anomaly localization
+
 Usage:
-    python inference.py --input data/samples/sample_bad_12.png --output results/sample_output.png
+    python inference.py --input data/samples/sample_bad_12.png --output results/sample_inspection_output.png
 """
 
 import os
@@ -15,12 +20,13 @@ from src.pipeline import PCBInspectionPipeline
 def main():
     parser = argparse.ArgumentParser(description="PCB Edge Detection and Restoration Inference")
     parser.add_argument("--input", "-i", required=True, help="Path to input degraded image or directory")
-    parser.add_argument("--output", "-o", default="results/output.png", help="Path or directory for output")
+    parser.add_argument("--output", "-o", default="results/sample_inspection_output.png", help="Path or directory for output")
+    parser.add_argument("--model", "-m", default="autoencoder", choices=["autoencoder", "dncnn"], help="Restoration model ('autoencoder' or 'dncnn')")
     parser.add_argument("--ref", "-r", default=None, help="Optional reference ground-truth image for metrics")
     parser.add_argument("--device", default="cpu", help="Compute device ('cpu' or 'cuda')")
     args = parser.parse_args()
 
-    pipeline = PCBInspectionPipeline(device=args.device)
+    pipeline = PCBInspectionPipeline(denoiser_model=args.model, device=args.device)
 
     if os.path.isfile(args.input):
         print(f"Loading input: {args.input}")
@@ -32,13 +38,15 @@ def main():
 
         results = pipeline.inspect(img, reference_img=ref_img)
 
-        # Create 3-panel visualization: Degraded, Restored, DexiNed Edges
+        # 4-panel inspection visualization:
+        # [Degraded Input | Restored (DnCNN/AE) | DexiNed Sub-Pixel Edges | Morphological ROIs & Solder Anomalies]
         H, W = img.shape[:2]
         vis_degraded = img if img.ndim == 3 else cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         vis_restored = cv2.cvtColor(results["restored_image"], cv2.COLOR_GRAY2BGR)
         vis_edges = cv2.cvtColor(results["dexined_edges"], cv2.COLOR_GRAY2BGR)
+        vis_morph = results["roi_analysis"]["annotated_vis"]
 
-        combined = np.hstack([vis_degraded, vis_restored, vis_edges])
+        combined = np.hstack([vis_degraded, vis_restored, vis_edges, vis_morph])
 
         out_dir = os.path.dirname(args.output)
         if out_dir:
@@ -47,13 +55,20 @@ def main():
         cv2.imwrite(args.output, combined)
         print(f"Results successfully saved to: {args.output}")
 
-        print("\nInspection Metrics:")
-        print(f"  Degraded Sharpness (Laplacian Var): {results['degraded_sharpness']:.2f}")
-        print(f"  Restored Sharpness (Laplacian Var): {results['restored_sharpness']:.2f}")
+        roi_info = results["roi_analysis"]
+        print("\nInspection Metrics & Findings:")
+        print(f"  Restoration Model Used             : {args.model.upper()}")
+        print(f"  Degraded Sharpness (Laplacian Var) : {results['degraded_sharpness']:.2f}")
+        print(f"  Restored Sharpness (Laplacian Var) : {results['restored_sharpness']:.2f}")
+        print(f"  Targeted ROIs Inspected            : {len(roi_info['rois'])}")
+        print(f"  Critical Traces Localized          : {roi_info['critical_traces_count']}")
+        print(f"  Solder Anomalies Detected          : {roi_info['anomalies_count']}")
+
         if "restored_psnr" in results:
-            print(f"  Degraded PSNR: {results['degraded_psnr']:.2f} dB -> Restored PSNR: {results['restored_psnr']:.2f} dB")
-            print(f"  Degraded SSIM: {results['degraded_ssim']:.4f} -> Restored SSIM: {results['restored_ssim']:.4f}")
-            print(f"  DexiNed ODS F1-Score: {results['dexined_ods_f1']:.3f}")
+            print(f"\nGround Truth Quantitative Benchmark:")
+            print(f"  Degraded PSNR: {results['degraded_psnr']:.2f} dB -> Restored PSNR: {results['restored_psnr']:.2f} dB (+{results['psnr_uplift_db']:.2f} dB)")
+            print(f"  Degraded SSIM: {results['degraded_ssim']:.4f} -> Restored SSIM: {results['restored_ssim']:.4f} (+{results['ssim_uplift']:.4f})")
+            print(f"  DexiNed Sub-Pixel ODS F1-Score     : {results['dexined_ods_f1']:.3f}")
 
     elif os.path.isdir(args.input):
         os.makedirs(args.output, exist_ok=True)
@@ -74,4 +89,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

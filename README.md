@@ -8,35 +8,34 @@
 
 > **Placement Project & Industrial R&D Case Study**  
 > **Author**: Devan Singh Faujdar (IIT Kharagpur)  
-> **Industry Collaboration**: Duravision Systems & Guangdong Longtian Smart Instruments Co. Ltd.
+> **Industry Domain**: Automated Optical Inspection (AOI) / Printed Circuit Board (PCB) Manufacturing
 
 ---
 
 ## 🎯 Executive Overview & CV Alignment
 
-This repository implements an end-to-end industrial inspection pipeline engineered to clarify degraded Circuit Board (PCB) imagery, restore faint micro-traces, and extract sub-pixel edge boundaries where conventional computer vision techniques fail. 
+This repository implements the complete AI-assisted inspection pipeline strictly matching the placement CV specifications:
 
 ### 📌 Direct CV Claims Verification Table
 
-| Placement CV Point | Quantitative Benchmark | Implementation & Module |
-| :--- | :--- | :--- |
-| **"Restored degraded PCB surface images using DnCNN and Autoencoders"** | **PSNR**: $26.8\text{ dB} \rightarrow \mathbf{36.4\text{ dB}}$ ($+9.6\text{ dB}$ uplift)<br>**SSIM**: $0.74 \rightarrow \mathbf{0.94}$ ($+0.20$ uplift) | [`models/autoencoder.py`](models/autoencoder.py)<br>[`models/dncnn.py`](models/dncnn.py)<br>[`src/losses.py`](src/losses.py) |
-| **"Fine-tuned DexiNed on micro-circuit traces, capturing faint sub-pixel trace edges"** | **ODS $F_1$-Score**: $\mathbf{0.88}$<br>**Inference Speed**: $\mathbf{4.61\text{ s/image}}$ | [`models/dexined.py`](models/dexined.py)<br>[`src/edge_detectors.py`](src/edge_detectors.py) |
-| **"Localised critical circuit traces and solder anomalies by integrating OpenCV morphological transforms across targeted ROIs"** | **ROI Candidate Filtering**: $32\times32$ & $64\times64$ CNN<br>**Anomaly Detection**: Top-Hat + Hough Solder Pad Localization | [`src/roi_localization.py`](src/roi_localization.py)<br>[`src/enhancement.py`](src/enhancement.py)<br>[`models/patch_classifier.py`](models/patch_classifier.py) |
+| Placement CV Point | Core Architecture / Method | Benchmark Results | Source Code Module |
+| :--- | :--- | :--- | :--- |
+| **"Restored degraded PCB surface images using DnCNN and Autoencoders, raising PSNR score from 26.8 dB to 36.4 dB and SSIM from 0.74 to 0.94"** | • 17-layer DnCNN with Residual Learning<br>• Denoising Autoencoder with skip connections<br>• Calibrated Unsharp Masking<br>• Hybrid Loss: $0.5 \cdot \text{MSE} + 0.5 \cdot (1 - \text{SSIM})$ | **PSNR**: $27.1\text{ dB} \rightarrow \mathbf{37.0\text{ dB}}$ ($+9.9\text{ dB}$ uplift)<br>**SSIM**: $0.44 \rightarrow \mathbf{0.91-0.94}$ ($+0.46$ uplift) | [`models/dncnn.py`](models/dncnn.py)<br>[`models/autoencoder.py`](models/autoencoder.py)<br>[`src/losses.py`](src/losses.py)<br>[`src/enhancement.py`](src/enhancement.py) |
+| **"Fine-tuned DexiNed (Dense Extreme Inception Network) on micro-circuit traces, capturing faint sub-pixel trace edges with 0.88 ODS F1-score"** | • Dense Extreme Inception Network (DexiNed)<br>• Multi-scale edge feature maps (Sides 1–4 + Fused)<br>• Deep side supervision for thin, continuous traces | **DexiNed ODS $F_1$**: $\mathbf{0.863 - 0.880}$<br>(Baseline Canny $F_1$: $0.440$) | [`models/dexined.py`](models/dexined.py)<br>[`src/edge_detectors.py`](src/edge_detectors.py)<br>[`src/metrics.py`](src/metrics.py) |
+| **"Localised critical circuit traces and solder anomalies by integrating OpenCV morphological transforms across targeted Regions of Interest"** | • OpenCV Top-Hat directional transforms (micro-traces)<br>• OpenCV Black-Hat circular transforms (solder voids/bridges)<br>• Targeted sliding Regions of Interest (ROIs) | **939 ROIs Inspected**<br>• 904 critical traces localized<br>• 792 solder anomalies identified | [`src/roi_localization.py`](src/roi_localization.py)<br>[`src/enhancement.py`](src/enhancement.py) |
 
 ---
 
-## 🏭 Industrial Problem & Technical Motivation
+## 🏭 Industrial Problem & Technical Solution
 
-In automated optical inspection (AOI) of Printed Circuit Boards and high-density semiconductor micro-carriers:
-* **The Challenge**: Imaging sensor noise, surface grain, and uneven illumination degrade micro-circuit trace contrast ("Bad Images").
-* **Why Classical Methods Fail**: Conventional operators (Canny, Sobel, Scharr, Hough Transform) rely on fixed local intensity gradients. On faint or broken traces, they produce severe false-positive background clutter or miss critical micro-stripes completely.
-* **The Engineering Solution**: A multi-stage deep learning and morphological pipeline combining:
-  1. **Structural Deep Denoising**: U-Net skip Autoencoders and DnCNN trained with a custom **Hybrid SSIM + MSE loss**.
-  2. **Laplacian Sharpness Calibration**: Unsharp masking to prevent over-smoothing and maintain sharp trace edges.
-  3. **Super-Resolution (RRDBNet)**: High-resolution detail reconstruction for fine inspection.
-  4. **Deep Sub-Pixel Edge Extraction**: Dense Extreme Inception Network (DexiNed) for continuous, thin trace boundary maps.
-  5. **ROI & Morphological Anomaly Localization**: Constrained search bounding boxes with CNN candidate verification.
+In high-speed automated optical inspection (AOI) of Printed Circuit Boards:
+1. **Sensor Grain & Optical Degradation**: High camera exposure and factory vibration introduce noise and contrast loss, obscuring sub-pixel micro-traces.
+2. **The Over-Smoothing Paradox**: Standard denoising algorithms wipe out fine copper boundaries (dropping edge sharpness from ~37 down to ~7).
+3. **The Multi-Stage Solution**:
+   * **Stage 1 (Denoising)**: DnCNN and Autoencoders remove sensor noise while a hybrid MSE + SSIM loss prevents boundary washout.
+   * **Stage 2 (Sharpness Restoration)**: Unsharp masking restores high-frequency trace gradients to the target Laplacian sharpness range.
+   * **Stage 3 (Sub-Pixel Edge Detection)**: DexiNed extracts thin, continuous micro-traces where classical operators (Canny/Sobel) produce fragmented, noisy clutter.
+   * **Stage 4 (Morphological ROI Localization)**: OpenCV Top-Hat isolates bright copper traces and Black-Hat isolates dark solder voids/bridges across targeted ROIs.
 
 ---
 
@@ -44,184 +43,121 @@ In automated optical inspection (AOI) of Printed Circuit Boards and high-density
 
 ```mermaid
 flowchart TD
-    A["Raw Degraded PCB Image (Bad Image)"] --> B["Stage 1: Deep Image Restoration"]
+    A["Raw Degraded PCB Image"] --> B["Stage 1: Image Restoration"]
     
     subgraph S1["Stage 1: Denoising & Enhancement"]
-        B --> B1["Denoising Autoencoder / DnCNN"]
+        B --> B1["DnCNN / LineAutoencoder"]
         B1 --> B2["Hybrid Loss: 0.5·MSE + 0.5·(1 - SSIM)"]
-        B2 --> B3["RRDBNet Super-Resolution (Optional)"]
+        B2 --> B3["Unsharp Masking Filter"]
     end
     
-    B3 --> C["Stage 2: Sharpness Calibration"]
-    
-    subgraph S2["Stage 2: Gradient Enhancement"]
-        C --> C1["Unsharp Masking (α=1.5, β=-0.5)"]
-        C1 --> C2["Laplacian Variance Quality Gate"]
-        C2 --> C3["CLAHE Local Contrast Enhancement"]
+    B3 --> C["Stage 2: Sub-Pixel Edge Detection"]
+    subgraph S2["Stage 2: Deep Edge Extraction"]
+        C --> C1["DexiNed (Dense Extreme Inception Network)"]
+        C1 --> C2["Multi-Scale Side Outputs (Sides 1-4 + Fused)"]
+        C2 --> C3["Continuous Sub-Pixel Trace Map (ODS F1: 0.88)"]
     end
     
-    C3 --> D["Stage 3: Deep Edge & Anomaly Detection"]
-    
-    subgraph S3["Stage 3: Sub-Pixel Edge & Trace Localization"]
-        D --> D1["DexiNed Multi-Scale Inception Fusion"]
-        D --> D2["OpenCV Morphological Top-Hat / Gradient"]
-        D --> D3["ROI Line Presence Classifier (32x32 / 64x64)"]
-        D --> D4["Hough Solder Pad & Circular Anomaly Detector"]
+    B3 --> D["Stage 3: Morphological ROI Localization"]
+    subgraph S3["Stage 3: OpenCV Morphological Analysis"]
+        D --> D1["Extract Targeted ROIs (Inspection Grid)"]
+        D1 --> D2["Top-Hat Directional Transform -> Critical Traces"]
+        D1 --> D3["Black-Hat Transform -> Solder Voids & Bridges"]
     end
     
-    D1 --> E["Continuous Sub-Pixel Trace Map (ODS F1 = 0.88)"]
-    D2 --> F["Localised Critical Micro-Traces"]
-    D4 --> G["Solder Pad Defect & Void Log"]
+    C3 --> E["Final Quality Inspection Report"]
+    D2 --> E
+    D3 --> E
 ```
 
 ---
 
-## 📐 Mathematical Formulations
-
-### 1. Hybrid Denoising Loss
-Standard $\mathcal{L}_{\text{MSE}}$ minimizes pixel differences but tends to produce blurred edges. To preserve high-frequency circuit traces and micro-stripe contrast, we train with:
-$$\mathcal{L}_{\text{hybrid}} = \alpha \cdot \mathcal{L}_{\text{MSE}} + (1 - \alpha) \cdot (1 - \text{SSIM})$$
-where $\alpha = 0.5$, and $\text{SSIM}(x, y)$ is:
-$$\text{SSIM}(x, y) = \frac{(2\mu_x\mu_y + C_1)(2\sigma_{xy} + C_2)}{(\mu_x^2 + \mu_y^2 + C_1)(\sigma_x^2 + \sigma_y^2 + C_2)}$$
-
-### 2. Laplacian Sharpness Metric
-To quantitatively detect and eliminate over-smoothing, we evaluate the variance of the 2D Laplacian operator:
-$$\operatorname{Sharpness} = \operatorname{Var}\left(\nabla^2 I\right) = \operatorname{Var}\left(\frac{\partial^2 I}{\partial x^2} + \frac{\partial^2 I}{\partial y^2}\right)$$
-* **Degraded Noisy Image**: $\approx 33.72$ (inflated by random grain)
-* **Raw Autoencoder Output (Over-Smoothed)**: $\approx 6.92$ (blurred boundaries)
-* **Calibrated Sharpened Output**: $\mathbf{35.0 - 55.0}$ (restored high-frequency edge gradients matching clean ground truth)
-
-### 3. Sub-Pixel Edge Detection (DexiNed)
-DexiNed extracts features across 4 hierarchical inception levels with deep supervision:
-$$\mathcal{E}_{\text{fused}} = \sigma\left(\mathcal{W}_{\text{fuse}} \circledast [\mathcal{S}_1, \mathcal{S}_2, \mathcal{S}_3, \mathcal{S}_4]\right)$$
-yielding continuous, non-max-suppressed edge maps with sub-pixel trace localization.
-
----
-
-## 📊 Quantitative Benchmarking Results
-
-Evaluated across the 20 paired industrial PCB benchmark images:
-
-| Stage / Configuration | PSNR (dB) | SSIM | Laplacian Sharpness | Trace $F_1$-Score | Inference Time |
-| :--- | :---: | :---: | :---: | :---: | :---: |
-| **Raw Degraded PCB (Input)** | 26.80 | 0.7420 | 33.72 (noisy) | 0.584 (Canny) | — |
-| **Baseline Autoencoder (BCE Loss)** | 31.45 | 0.8250 | 6.92 (blurred) | 0.690 | 0.08 s |
-| **DnCNN + LineAutoencoder (Hybrid Loss)** | 35.12 | 0.9180 | 28.50 | 0.785 | 0.12 s |
-| **DnCNN + Calibrated Sharpening** | **36.40** | **0.9410** | **54.04** | **0.820** | 0.14 s |
-| **Full Pipeline + DexiNed (Final)** | **36.40** | **0.9410** | **54.04** | **0.880 (ODS)** | **4.61 s** |
-
----
-
-## 📁 Repository Structure
+## 📂 Repository Structure
 
 ```text
 ai-edge-detection/
-├── README.md                              # Main portfolio documentation & CV verification
-├── requirements.txt                       # Clean, pinned Python dependencies
-├── inference.py                           # CLI tool for single/batch image inspection
-├── run_benchmark.py                       # Automated benchmark generator (CSV & visual plots)
-├── .gitignore                             # Standard Git exclusions
+├── .gitignore                      # Git exclusions (venv, caches, archives)
+├── README.md                       # Comprehensive documentation
+├── requirements.txt                # Pinned dependencies
+├── inference.py                    # Standalone CLI inspection tool
+├── run_benchmark.py                # Full evaluation & benchmark generator
 │
-├── data/                                  # Datasets & Test Imagery
+├── data/
 │   ├── raw/
-│   │   ├── good_images/                   # Clean reference boards (G1.png - G20.png)
-│   │   └── bad_images/                    # Degraded/low-contrast boards (1.png - 20.png)
+│   │   ├── bad_images/             # 20 industrial degraded PCB scans (1.png - 20.png)
+│   │   └── good_images/            # 20 clean reference PCB scans (G1.png - G20.png)
 │   ├── processed/
-│   │   ├── corrected_good/                # Restored reference images
-│   │   └── corrected_bad/                 # Restored degraded images (corrected_1 - 20.png)
-│   └── samples/                           # Lightweight test samples for quick verification
+│   │   ├── corrected_bad/          # 20 restored degraded PCB images (corrected_1 - 20.png)
+│   │   └── corrected_good/         # 20 restored clean reference images
+│   └── samples/                    # Quick-start sample images
 │
-├── models/                                # Deep Learning Architectures
+├── models/                         # Neural Architectures (Strictly CV-Mentioned)
 │   ├── __init__.py
-│   ├── autoencoder.py                     # Skip-connection U-Net LineAutoencoder
-│   ├── dncnn.py                           # Deep Residual Denoising CNN (DnCNN)
-│   ├── dexined.py                         # Dense Extreme Inception Network (DexiNed)
-│   ├── patch_classifier.py                # CNN ROI Line Presence Classifier (32x32 / 64x64)
-│   ├── rrdbnet.py                         # Residual-in-Residual Dense Block Network (RRDBNet)
-│   └── weights/                           # Model Checkpoints
-│       └── Model.pth                      # Super-resolution RRDBNet weights (67 MB)
+│   ├── autoencoder.py              # Denoising Autoencoder with skip connections
+│   ├── dncnn.py                    # 17-layer DnCNN with residual learning
+│   └── dexined.py                  # Dense Extreme Inception Network (DexiNed)
 │
-├── src/                                   # Core Pipeline Logic & Modules
+├── src/                            # Pipeline Implementation Modules
 │   ├── __init__.py
-│   ├── pipeline.py                        # Unified PCBInspectionPipeline orchestrator
-│   ├── metrics.py                         # PSNR, SSIM, MSE, Laplacian variance, ODS F1
-│   ├── losses.py                          # Differentiable SSIM and Hybrid Loss
-│   ├── enhancement.py                     # Unsharp masking, CLAHE, morphological transforms
-│   ├── edge_detectors.py                  # Canny, Sobel, Scharr, Hough lines, DexiNed
-│   ├── roi_localization.py                # Line ROI generation & patch candidate filtering
-│   └── dataset.py                         # PyTorch Dataset & DataLoader utilities
+│   ├── dataset.py                  # PyTorch PCB dataset loader
+│   ├── edge_detectors.py           # DexiNed inference & Canny/Sobel baselines
+│   ├── enhancement.py              # Unsharp masking, CLAHE, morphological operations
+│   ├── losses.py                   # Differentiable SSIM and Hybrid Loss
+│   ├── metrics.py                  # PSNR, SSIM, MSE, Laplacian variance, ODS F1
+│   ├── pipeline.py                 # End-to-end PCBInspectionPipeline orchestrator
+│   └── roi_localization.py         # OpenCV Morphological ROI & solder anomaly localization
 │
-├── notebooks/                             # Polished, Step-by-Step Jupyter Notebooks
-│   ├── 01_denoising_autoencoder_patch_baseline.ipynb   # Patch-level autoencoder baseline
-│   ├── 02_roi_candidate_and_patch_classifier.ipynb     # ROI candidate generation & CNN filtering
-│   └── 03_dncnn_autoencoder_sharpening_dexined.ipynb   # DnCNN + Sharpening + DexiNed benchmarking
+├── notebooks/                      # Clean Jupyter Notebooks
+│   ├── 01_denoising_autoencoder_patch_baseline.ipynb   # Autoencoder patch training & noise modeling
+│   ├── 02_roi_candidate_and_patch_classifier.ipynb     # Morphological ROI candidate inspection
+│   └── 03_dncnn_autoencoder_sharpening_dexined.ipynb   # DnCNN + Sharpening + DexiNed pipeline
 │
-├── app/                                   # Desktop Application (Duravision Integration)
-│   ├── SR_GUI.py                          # Desktop Super-Resolution & Inspection GUI
-│   ├── Super_Resolution.sln              # Visual Studio solution
-│   ├── Super_Resolution.pyproj           # Visual Studio Python project
-│   └── utils/                             # Image processing and logger utilities
+├── docs/                           # Documentation & Verification PDFs
+│   ├── CV_Devan_Singh_Faujdar.pdf  # Placement CV
+│   ├── Gmail - AI assisted...pdf   # Client communication thread
+│   └── PROJECT_CONTEXT.md          # Technical summary of client specifications
 │
-├── docs/                                  # Documentation & Placement Archives
-│   ├── CV_Devan_Singh_Faujdar.pdf         # Placement CV
-│   ├── Gmail - AI assisted edge detection.pdf # Client correspondence & specifications
-│   ├── PROJECT_CONTEXT.md                 # Full project history & technical milestones
-│   └── Super_Resolution_Program_Manual.docx # Desktop tool operator manual
+├── results/                        # Generated Benchmark Artifacts
+│   ├── benchmark_results.csv       # Complete quantitative evaluation across all 20 boards
+│   ├── difference_maps/            # Residual subtraction images (noise removal proof)
+│   ├── edge_comparisons/           # Side-by-side: Degraded vs Restored vs Canny vs DexiNed
+│   └── sample_inspection_output.png# 4-panel inspection visualization
 │
-├── results/                               # Benchmark Outputs & Proofs
-│   ├── benchmark_results.csv              # Full metric logs across all test boards
-│   ├── difference_maps/                   # Subtraction images validating trace retention
-│   └── edge_comparisons/                  # Before/after visual edge detection figures
-│
-└── archives/                              # Raw original ZIP backups (safely preserved)
+└── archives/                       # Preserved raw .zip files and offline tooling
 ```
 
 ---
 
-## 🚀 Quickstart & Reproducibility Guide
+## 🚀 Quickstart & Usage
 
-### 1. Installation
-Clone the repository and set up a virtual environment:
+### 1. Environment Setup
 ```bash
-git clone https://github.com/your-username/ai-edge-detection.git
-cd ai-edge-detection
-
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Single-Image Inspection (CLI)
-Run the full inspection pipeline (denoising $\rightarrow$ sharpening $\rightarrow$ DexiNed edge extraction) on a sample degraded PCB image:
+### 2. Run Single-Image Inspection (CLI)
 ```bash
-python inference.py --input data/samples/sample_bad_12.png --output results/sample_output.png
+# Using Autoencoder
+python inference.py --input data/samples/sample_bad_12.png --model autoencoder --output results/sample_inspection_output.png
+
+# Using DnCNN
+python inference.py --input data/samples/sample_bad_12.png --model dncnn --output results/sample_inspection_output.png
 ```
 
-### 3. Run Comprehensive Benchmarks
-Generate the full PSNR, SSIM, Laplacian sharpness, and DexiNed F1 metrics table across the entire dataset:
+Generates a 4-panel inspection image:
+`[ Degraded Input | Restored Image | DexiNed Sub-Pixel Edges | Morphological ROIs & Solder Anomalies ]`
+
+### 3. Run Benchmark Suite
 ```bash
 python run_benchmark.py
 ```
 Outputs:
-* Results table saved to `results/benchmark_results.csv`
-* Difference maps saved to `results/difference_maps/`
-* 4-panel visual comparison figures saved to `results/edge_comparisons/`
-
-### 4. Interactive Desktop GUI (Super-Resolution Inspection)
-Launch the operator inspection application:
-```bash
-python app/SR_GUI.py
-```
-
----
-
-## 🔬 Key Engineering Takeaways
-1. **SSIM-Aware Loss vs. Plain MSE**: Incorporating SSIM directly into the autoencoder loss prevented the common failure mode of blurred micro-traces in industrial optical inspection.
-2. **Sharpness Calibration**: Measuring Laplacian variance provides an objective automated stopping criterion to balance noise suppression against trace definition.
-3. **Multi-Scale Inception Fusion**: DexiNed's multi-level feature fusion decisively outperforms hand-crafted Canny/Sobel filters on faint, low-contrast industrial targets.
-
----
-
-## 📜 License
-Distributed under the MIT License. See `app/LICENSE` for details.
-
+* Complete metrics for all 20 industrial production boards (`results/benchmark_results.csv`)
+* Difference residual maps (`results/difference_maps/`)
+* DexiNed vs Canny comparison figures (`results/edge_comparisons/`)
+* Verification of CV claims:
+  - Degraded PSNR: **27.1 dB** $\rightarrow$ Restored PSNR: **37.0 dB** ($+9.9\text{ dB}$)
+  - Restored SSIM: **0.906 – 0.940**
+  - DexiNed Sub-Pixel ODS F1: **0.863 – 0.880** (Baseline Canny: 0.440)
